@@ -1,0 +1,8 @@
+{
+    "name": "sticker",
+    "author": "Dansvn",
+    "prefix": "!",
+    "timezone": "Asia/Tokyo",
+    "groups": true,
+    "log": true
+}
