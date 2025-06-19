@@ -64,65 +64,9 @@ client.on('message', async message => {
             return client.sendMessage(message.from,
                 `Available commands:\n` +
                 `${config.prefix}yt <YouTube URL> - Download audio as MP3\n` +
-                `${config.prefix}s - Create sticker (image, GIF or short video)\n` +
-                `${config.prefix}r <name> | <author> - Rename sticker (reply to sticker)`
+                `${config.prefix}s - Create sticker from image/video or reply\n` +
+                `${config.prefix}r <name> | <author> - Rename sticker (reply required)`
             );
-        }
-
-        if (
-            message.body === `${config.prefix}s` ||
-            (message.hasMedia && (message.type === 'image' || message.type === 'video' || message._data?.isGif))
-        ) {
-            try {
-                const media = await (message.hasQuotedMsg
-                    ? (await message.getQuotedMessage()).downloadMedia()
-                    : message.downloadMedia());
-
-                if (!media) return client.sendMessage(message.from, "No media found.");
-
-                await client.sendMessage(message.from, media, {
-                    sendMediaAsSticker: true,
-                    stickerName: config.name,
-                    stickerAuthor: config.author
-                });
-
-                if (config.log) log('Animated or image sticker sent.');
-            } catch (e) {
-                if (config.log) logError('Failed to create sticker.');
-                client.sendMessage(message.from, "Failed to create sticker.");
-            }
-            return;
-        }
-
-        if (message.body.startsWith(`${config.prefix}r`)) {
-            if (message.body.includes('|')) {
-                let name = message.body.split('|')[0].replace(message.body.split(' ')[0], '').trim();
-                let author = message.body.split('|')[1].trim();
-
-                if (message.hasQuotedMsg) {
-                    const quotedMsg = await message.getQuotedMessage();
-                    if (quotedMsg.hasMedia && (quotedMsg.type === 'image' || quotedMsg.type === 'sticker' || quotedMsg.type === 'video')) {
-                        try {
-                            const media = await quotedMsg.downloadMedia();
-                            await client.sendMessage(message.from, media, {
-                                sendMediaAsSticker: true,
-                                stickerName: name,
-                                stickerAuthor: author
-                            });
-                            if (config.log) log(`Sticker renamed and sent: ${name} | ${author}`);
-                        } catch {
-                            client.sendMessage(message.from, "Failed to rename.");
-                        }
-                    } else {
-                        client.sendMessage(message.from, "Reply to a sticker or image.");
-                    }
-                } else {
-                    client.sendMessage(message.from, "Reply to a sticker or image.");
-                }
-            } else {
-                client.sendMessage(message.from, `Usage: ${config.prefix}r <name> | <author>`);
-            }
-            return;
         }
 
         if (message.body.startsWith(`${config.prefix}yt `)) {
@@ -169,9 +113,77 @@ client.on('message', async message => {
             return;
         }
 
+        if (message.body === `${config.prefix}s`) {
+            let targetMsg = message;
+
+            if (message.hasQuotedMsg) {
+                targetMsg = await message.getQuotedMessage();
+            }
+
+            const isValidMedia = targetMsg.hasMedia && (
+                targetMsg.type === 'image' ||
+                targetMsg.type === 'video' ||
+                targetMsg._data?.isGif
+            );
+
+            if (!isValidMedia) {
+                return client.sendMessage(message.from, "Send an image/video or reply to one using the command.");
+            }
+
+            try {
+                const media = await targetMsg.downloadMedia();
+                await client.sendMessage(message.from, media, {
+                    sendMediaAsSticker: true,
+                    stickerName: config.name,
+                    stickerAuthor: config.author
+                });
+                if (config.log) log('Sticker created and sent via command.');
+            } catch (e) {
+                if (config.log) logError('Failed to create sticker.');
+                client.sendMessage(message.from, "Failed to create sticker.");
+            }
+            return;
+        }
+
+        if (message.body.startsWith(`${config.prefix}r`)) {
+            if (message.body.includes('|')) {
+                let name = message.body.split('|')[0].replace(message.body.split(' ')[0], '').trim();
+                let author = message.body.split('|')[1].trim();
+                if (config.log) log(`Renaming sticker: name = ${name}, author = ${author}`);
+                if (message.hasQuotedMsg) {
+                    const quotedMsg = await message.getQuotedMessage();
+                    if (quotedMsg.type !== 'image' && quotedMsg.type !== 'sticker') {
+                        return client.sendMessage(message.from, "Only stickers or images can be renamed.");
+                    }
+                    if (quotedMsg.hasMedia) {
+                        try {
+                            const media = await quotedMsg.downloadMedia();
+                            await client.sendMessage(message.from, media, {
+                                sendMediaAsSticker: true,
+                                stickerName: name,
+                                stickerAuthor: author
+                            });
+                            if (config.log) log('Sticker renamed and sent.');
+                        } catch {
+                            if (config.log) logError('Failed to rename sticker.');
+                            client.sendMessage(message.from, "Failed to rename.");
+                        }
+                    } else {
+                        client.sendMessage(message.from, "Reply to a sticker or image.");
+                    }
+                } else {
+                    client.sendMessage(message.from, "Reply to a sticker or image.");
+                }
+            } else {
+                client.sendMessage(message.from, `Usage: ${config.prefix}r <name> | <author>`);
+            }
+            return;
+        }
+
         const chat = await client.getChatById(message.id.remote);
         await chat.sendSeen();
     }
 });
 
 client.initialize();
+
