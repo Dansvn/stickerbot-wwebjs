@@ -14,7 +14,7 @@ A simple WhatsApp bot built with `whatsapp-web.js` that lets you:
 - Create stickers from images (`!s`)
 - Rename stickers by replying to them (`!r <name> | <author>`)
 - Works on WhatsApp Web via `whatsapp-web.js`
-- Designed primarily for Termux, tested also on Alpine Linux via PRoot.
+- Designed primarily for Termux, tested also on Denian Linux via PRoot.
 
 
 ---
@@ -24,7 +24,7 @@ A simple WhatsApp bot built with `whatsapp-web.js` that lets you:
 - Node.js 16+ installed.
 - `yt-dlp` installed and available in your system.
 - Chromium browser installed.
-- Termux environment (recommended) or Alpine Linux with PRoot.
+- Termux environment (recommended) or Debian Linux with PRoot.
 - Internet connection.
 - WhatsApp account to scan QR code.
 
@@ -47,16 +47,10 @@ PUPPETEER_SKIP_DOWNLOAD=true npm install
 
 ### 3. Install Chromium browser
 
-- Termux:
+- Debian (with PRoot):
 
 ```bash
-pkg install chromium
-```
-
-- Alpine Linux (with PRoot):
-
-```bash
-apk add chromium
+apt install chromium
 ```
 
 Make sure Chromium is installed at `/usr/bin/chromium` or adjust `executablePath` in `main.js`.
