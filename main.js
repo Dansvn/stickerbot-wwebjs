@@ -74,14 +74,17 @@ async function processImageStretch(media) {
 async function processVideoStretch(media) {
     return new Promise((resolve, reject) => {
         const tempInput = path.join(os.tmpdir(), 'input.mp4');
-        const tempOutput = path.join(os.tmpdir(), 'output.mp4');
+        const tempOutput = path.join(os.tmpdir(), 'output.webp');
 
         fs.writeFileSync(tempInput, Buffer.from(media.data, 'base64'));
 
-        const cmd = `ffmpeg -y -i "${tempInput}" -vf "scale=512:512" -c:a copy "${tempOutput}"`;
+        const cmd = `ffmpeg -y -i "${tempInput}" \
+-vf "fps=15,scale=512:512:force_original_aspect_ratio=decrease:eval=frame,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=0x00000000,format=yuva420p" \
+-an -vsync 0 -loop 0 -t 6 -c:v libwebp -lossless 0 -qscale 75 -preset picture -compression_level 6 "${tempOutput}"
+`;
+
         exec(cmd, (error) => {
             fs.unlinkSync(tempInput);
-
             if (error) {
                 reject(error);
             } else {
@@ -90,6 +93,8 @@ async function processVideoStretch(media) {
         });
     });
 }
+
+
 
 client.on('message', async message => {
     const isGroup = message.from.endsWith('@g.us');
