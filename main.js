@@ -61,12 +61,20 @@ async function processImageStretch(media) {
     const tempInput = path.join(os.tmpdir(), 'input.webp');
     const tempOutput = path.join(os.tmpdir(), 'output.webp');
 
-    fs.writeFileSync(tempInput, Buffer.from(media.data, 'base64'));
+    try {
+        fs.writeFileSync(tempInput, Buffer.from(media.data, 'base64'));
 
-    await sharp(tempInput)
-        .resize(512, 512, { fit: 'fill' }) 
-        .webp()
-        .toFile(tempOutput);
+        await sharp(tempInput)
+            .resize(512, 512, { fit: 'fill' })
+            .webp()
+            .toFile(tempOutput);
+    } finally {
+        if (fs.existsSync(tempInput)) {
+            try {
+                fs.unlinkSync(tempInput);
+            } catch {}
+        }
+    }
 
     return tempOutput;
 }
@@ -76,42 +84,53 @@ async function processVideoStretch(media) {
         const tempInput = path.join(os.tmpdir(), 'input.mp4');
         const tempOutput = path.join(os.tmpdir(), 'output.webp');
 
-        fs.writeFileSync(tempInput, Buffer.from(media.data, 'base64'));
+        try {
+            fs.writeFileSync(tempInput, Buffer.from(media.data, 'base64'));
+        } catch (err) {
+            return reject(new Error("Error saving input.mp4: " + err.message));
+        }
 
         const cmd = `ffmpeg -y -i "${tempInput}" \
--vf "fps=15,scale=512:512:force_original_aspect_ratio=decrease:eval=frame,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=0x00000000,format=yuva420p" \
--an -vsync 0 -loop 0 -t 6 -c:v libwebp -lossless 0 -qscale 75 -preset picture -compression_level 6 "${tempOutput}"
-`;
+-vf "fps=15,scale=512:512,setdar=1,format=yuva420p" \
+-an -vsync 0 -loop 0 -t 6 -c:v libwebp -lossless 0 -qscale 75 -preset picture -compression_level 6 "${tempOutput}"`;
 
         exec(cmd, (error) => {
-            fs.unlinkSync(tempInput);
-            if (error) {
-                reject(error);
-            } else {
-                resolve(tempOutput);
+            if (fs.existsSync(tempInput)) {
+                try {
+                    fs.unlinkSync(tempInput);
+                } catch {}
             }
+
+            if (error) {
+                return reject(new Error("Error processing video with ffmpeg: " + error.message));
+            }
+
+            if (!fs.existsSync(tempOutput)) {
+                return reject(new Error("Output file not found: output.webp"));
+            }
+
+            resolve(tempOutput);
         });
     });
 }
 
-
-
 client.on('message', async message => {
     const isGroup = message.from.endsWith('@g.us');
+    const prefix = config.prefix;
 
-    if (isGroup && config.groups) {
-        if (message.body === `${config.prefix}help`) {
+    if (message.body && message.body.startsWith(prefix)) {
+        if (message.body === `${prefix}help`) {
             return client.sendMessage(message.from,
                 `Available commands:\n` +
-                `${config.prefix}yt <YouTube URL> - Download audio as MP3\n` +
-                `${config.prefix}s - Create sticker from image/video or reply\n` +
-                `${config.prefix}r <name> | <author> - Rename sticker (reply required)`
+                `${prefix}yt <YouTube URL> - Download audio as MP3\n` +
+                `${prefix}s - Create sticker from image/video or reply\n` +
+                `${prefix}r <name> | <author> - Rename sticker (reply required)`
             );
         }
 
-        if (message.body.startsWith(`${config.prefix}yt `)) {
-            const url = message.body.replace(`${config.prefix}yt `, '').trim();
-            if (config.log) log(`${config.prefix}yt command received => ${url}`);
+        if (message.body.startsWith(`${prefix}yt `)) {
+            const url = message.body.slice((prefix + "yt ").length).trim();
+            if (config.log) log(`${prefix}yt command received => ${url}`);
 
             if (!url.includes("youtube.com") && !url.includes("youtu.be")) {
                 return client.sendMessage(message.from, 'Please send a valid YouTube link.');
@@ -153,65 +172,13 @@ client.on('message', async message => {
             return;
         }
 
-        if (message.body === `${config.prefix}s`) {
-            let targetMsg = message;
-
-            if (message.hasQuotedMsg) {
-                targetMsg = await message.getQuotedMessage();
-            }
-
-            const isValidMedia = targetMsg.hasMedia && (
-                targetMsg.type === 'image' ||
-                targetMsg.type === 'video' ||
-                targetMsg._data?.isGif
-            );
-
-            if (!isValidMedia) {
-                return client.sendMessage(message.from, "Send an image/video or reply to one using the command.");
-            }
-
-            try {
-                const media = await targetMsg.downloadMedia();
-
-                if (targetMsg.type === 'image' || targetMsg._data?.isGif) {
-                    const stickerPath = await processImageStretch(media);
-                    const stickerMedia = MessageMedia.fromFilePath(stickerPath);
-                    await client.sendMessage(message.from, stickerMedia, {
-                        sendMediaAsSticker: true,
-                        stickerName: config.name,
-                        stickerAuthor: config.author
-                    });
-                    fs.unlinkSync(stickerPath);
-                } else if (targetMsg.type === 'video') {
-                    const stickerPath = await processVideoStretch(media);
-                    const stickerMedia = MessageMedia.fromFilePath(stickerPath);
-                    await client.sendMessage(message.from, stickerMedia, {
-                        sendMediaAsSticker: true,
-                        stickerName: config.name,
-                        stickerAuthor: config.author
-                    });
-                    fs.unlinkSync(stickerPath);
-                } else {
-                    await client.sendMessage(message.from, media, {
-                        sendMediaAsSticker: true,
-                        stickerName: config.name,
-                        stickerAuthor: config.author
-                    });
-                }
-
-                if (config.log) log('Sticker created and sent via command.');
-            } catch (e) {
-                if (config.log) logError('Failed to create sticker.');
-                client.sendMessage(message.from, "Failed to create sticker.");
-            }
-            return;
-        }
-
-        if (message.body.startsWith(`${config.prefix}r`)) {
+        if (message.body.startsWith(`${prefix}r`)) {
             if (message.body.includes('|')) {
-                let name = message.body.split('|')[0].replace(message.body.split(' ')[0], '').trim();
-                let author = message.body.split('|')[1].trim();
+                let parts = message.body.split('|');
+                let name = parts[0].replace(`${prefix}r`, '').trim();
+                let author = parts[1].trim();
                 if (config.log) log(`Renaming sticker: name = ${name}, author = ${author}`);
+
                 if (message.hasQuotedMsg) {
                     const quotedMsg = await message.getQuotedMessage();
                     if (quotedMsg.type !== 'image' && quotedMsg.type !== 'sticker') {
@@ -237,53 +204,93 @@ client.on('message', async message => {
                     client.sendMessage(message.from, "Reply to a sticker or image.");
                 }
             } else {
-                client.sendMessage(message.from, `Usage: ${config.prefix}r <name> | <author>`);
+                client.sendMessage(message.from, `Usage: ${prefix}r <name> | <author>`);
             }
             return;
         }
 
-        const chat = await client.getChatById(message.id.remote);
-        await chat.sendSeen();
-    }
+        if (message.body === `${prefix}s`) {
+            let targetMsg = message;
 
-
-    else if (!isGroup) {
-        if (message.hasMedia) {
-            const mimetype = message._data?.mimetype || "";
-            const isImage = mimetype.startsWith("image/");
-            const isVideo = mimetype.startsWith("video/");
-
-            if (isImage || isVideo) {
-                try {
-                    const media = await message.downloadMedia();
-                    if (isImage) {
-                        const stickerPath = await processImageStretch(media);
-                        const stickerMedia = MessageMedia.fromFilePath(stickerPath);
-                        await client.sendMessage(message.from, stickerMedia, {
-                            sendMediaAsSticker: true,
-                            stickerName: config.name,
-                            stickerAuthor: config.author
-                        });
-                        fs.unlinkSync(stickerPath);
-                    } else if (isVideo) {
-                        const stickerPath = await processVideoStretch(media);
-                        const stickerMedia = MessageMedia.fromFilePath(stickerPath);
-                        await client.sendMessage(message.from, stickerMedia, {
-                            sendMediaAsSticker: true,
-                            stickerName: config.name,
-                            stickerAuthor: config.author
-                        });
-                        fs.unlinkSync(stickerPath);
-                    }
-                    if (config.log) log('Sticker automatically created in DM.');
-                } catch (e) {
-                    if (config.log) logError('Failed to create sticker in DM.');
-                    client.sendMessage(message.from, "Failed to create sticker.");
-                }
-                return;
+            if (message.hasQuotedMsg) {
+                targetMsg = await message.getQuotedMessage();
             }
+
+            const mimetype = targetMsg._data?.mimetype || '';
+            const isGif = mimetype === 'image/gif';
+            const isImage = mimetype.startsWith('image/') && !isGif;
+            const isVideo = mimetype.startsWith('video/');
+            const isValidMedia = targetMsg.hasMedia && (isImage || isVideo || isGif);
+
+            if (!isValidMedia) {
+                return client.sendMessage(message.from, "Send an image/video or reply to one using the command.");
+            }
+
+            try {
+                const media = await targetMsg.downloadMedia();
+
+                let stickerPath;
+
+                if (isImage) {
+                    stickerPath = await processImageStretch(media);
+                } else if (isVideo || isGif) {
+                    stickerPath = await processVideoStretch(media);
+                }
+
+                const stickerMedia = MessageMedia.fromFilePath(stickerPath);
+                await client.sendMessage(message.from, stickerMedia, {
+                    sendMediaAsSticker: true,
+                    stickerName: config.name,
+                    stickerAuthor: config.author
+                });
+                fs.unlinkSync(stickerPath);
+
+                if (config.log) log('Sticker created and sent via command.');
+            } catch (e) {
+                if (config.log) logError('Failed to create sticker: ' + e.message);
+                client.sendMessage(message.from, "Failed to create sticker.");
+            }
+
+            return;
         }
     }
+
+    if (!isGroup && message.hasMedia) {
+        const mimetype = message._data?.mimetype || "";
+        const isImage = mimetype.startsWith("image/");
+        const isVideo = mimetype.startsWith("video/");
+
+        if (isImage || isVideo) {
+            try {
+                const media = await message.downloadMedia();
+
+                let stickerPath;
+                if (isImage) {
+                    stickerPath = await processImageStretch(media);
+                } else if (isVideo) {
+                    stickerPath = await processVideoStretch(media);
+                }
+
+                const stickerMedia = MessageMedia.fromFilePath(stickerPath);
+                await client.sendMessage(message.from, stickerMedia, {
+                    sendMediaAsSticker: true,
+                    stickerName: config.name,
+                    stickerAuthor: config.author
+                });
+
+                fs.unlinkSync(stickerPath);
+
+                if (config.log) log('Sticker automatically created in private chat.');
+            } catch (e) {
+                if (config.log) logError('Failed to create sticker in private chat: ' + e.message);
+                client.sendMessage(message.from, "Failed to create sticker.");
+            }
+            return;
+        }
+    }
+
+    const chat = await client.getChatById(message.id.remote);
+    await chat.sendSeen();
 });
 
 client.initialize();
