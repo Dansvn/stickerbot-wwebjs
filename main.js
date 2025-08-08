@@ -155,9 +155,9 @@ async function processVideoStretch(media) {
   }
 
   return new Promise((resolve, reject) => {
-    const cmd = `ffmpeg -y -i "${tempTrimmed}" \
--vf "fps=15,scale=512:512:force_original_aspect_ratio=decrease,format=yuva420p" \
--an -vsync 0 -loop 0 -c:v libwebp -lossless 0 -qscale 75 -preset picture -compression_level 6 "${tempOutput}"`;
+    const cmd = `ffmpeg -y -i "${tempInput}" \
+-vf "fps=10,scale=512:512,setdar=1,format=yuv420p" \
+-an -vsync 0 -loop 0 -t 5 -c:v libwebp -lossless 0 -qscale 75 -preset picture -compression_level 6 "${tempOutput}"`;
 
     exec(cmd, (error) => {
       try { fs.unlinkSync(tempInput); } catch {}
