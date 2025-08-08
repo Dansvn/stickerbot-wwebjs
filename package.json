@@ -1,6 +1,6 @@
 {
   "name": "whatsappstickers",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "Made with love by Dansvn",
   "main": "main.js",
   "scripts": {
@@ -16,10 +16,10 @@
   "license": "MIT",
   "dependencies": {
     "colors": "^1.4.0",
-    "ffmpeg": "^0.0.4",
-    "fs": "^0.0.1-security",
+    "fluent-ffmpeg": "^2.1.2",
     "moment-timezone": "^0.5.37",
     "qrcode-terminal": "^0.12.0",
+    "sharp": "^0.32.6",
     "whatsapp-web.js": "1.31.0"
   }
 }
