@@ -79,40 +79,103 @@ async function processImageStretch(media) {
     return tempOutput;
 }
 
-async function processVideoStretch(media) {
-    return new Promise((resolve, reject) => {
-        const tempInput = path.join(os.tmpdir(), 'input.mp4');
-        const tempOutput = path.join(os.tmpdir(), 'output.webp');
+async function processImageStretch(media) {
+    const tempInput = path.join(os.tmpdir(), 'input.webp');
+    const tempOutput = path.join(os.tmpdir(), 'output.webp');
 
-        try {
-            fs.writeFileSync(tempInput, Buffer.from(media.data, 'base64'));
-        } catch (err) {
-            return reject(new Error("Error saving input.mp4: " + err.message));
+    try {
+        fs.writeFileSync(tempInput, Buffer.from(media.data, 'base64'));
+
+        await sharp(tempInput)
+            .resize(512, 512, {
+                fit: 'contain',
+                background: { r: 0, g: 0, b: 0, alpha: 0 }
+            })
+            .webp()
+            .toFile(tempOutput);
+    } finally {
+        if (fs.existsSync(tempInput)) {
+            try {
+                fs.unlinkSync(tempInput);
+            } catch {}
         }
+    }
 
-        const cmd = `ffmpeg -y -i "${tempInput}" \
--vf "fps=15,scale=512:512,setdar=1,format=yuva420p" \
--an -vsync 0 -loop 0 -t 6 -c:v libwebp -lossless 0 -qscale 75 -preset picture -compression_level 6 "${tempOutput}"`;
-
-        exec(cmd, (error) => {
-            if (fs.existsSync(tempInput)) {
-                try {
-                    fs.unlinkSync(tempInput);
-                } catch {}
-            }
-
-            if (error) {
-                return reject(new Error("Error processing video with ffmpeg: " + error.message));
-            }
-
-            if (!fs.existsSync(tempOutput)) {
-                return reject(new Error("Output file not found: output.webp"));
-            }
-
-            resolve(tempOutput);
-        });
-    });
+    return tempOutput;
 }
+
+async function processImageStretch(media) {
+    const tempInput = path.join(os.tmpdir(), 'input.webp');
+    const tempOutput = path.join(os.tmpdir(), 'output.webp');
+
+    try {
+        fs.writeFileSync(tempInput, Buffer.from(media.data, 'base64'));
+
+        await sharp(tempInput)
+            .resize(512, 512, { fit: 'fill' })  
+            .webp()
+            .toFile(tempOutput);
+    } finally {
+        if (fs.existsSync(tempInput)) {
+            try {
+                fs.unlinkSync(tempInput);
+            } catch {}
+        }
+    }
+
+    return tempOutput;
+}
+
+const getVideoDuration = (input) => {
+  return new Promise((resolve, reject) => {
+    exec(`ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${input}"`, (err, stdout) => {
+      if (err) reject(err);
+      else resolve(parseFloat(stdout));
+    });
+  });
+};
+
+async function processVideoStretch(media) {
+  const tempInput = path.join(os.tmpdir(), 'input.mp4');
+  const tempTrimmed = path.join(os.tmpdir(), 'trimmed.mp4');
+  const tempOutput = path.join(os.tmpdir(), 'output.webp');
+
+  fs.writeFileSync(tempInput, Buffer.from(media.data, 'base64'));
+
+  let duration = await getVideoDuration(tempInput);
+  if(duration > 6) {
+    await new Promise((resolve, reject) => {
+      exec(`ffmpeg -y -i "${tempInput}" -t 6 -c copy "${tempTrimmed}"`, (err) => {
+        if(err) reject(err);
+        else resolve();
+      });
+    });
+  } else {
+    fs.copyFileSync(tempInput, tempTrimmed);
+  }
+
+  return new Promise((resolve, reject) => {
+    const cmd = `ffmpeg -y -i "${tempTrimmed}" \
+-vf "fps=15,scale=512:512:force_original_aspect_ratio=decrease,format=yuva420p" \
+-an -vsync 0 -loop 0 -c:v libwebp -lossless 0 -qscale 75 -preset picture -compression_level 6 "${tempOutput}"`;
+
+    exec(cmd, (error) => {
+      try { fs.unlinkSync(tempInput); } catch {}
+      try { fs.unlinkSync(tempTrimmed); } catch {}
+
+      if (error) {
+        return reject(new Error("Error processing video with ffmpeg: " + error.message));
+      }
+
+      if (!fs.existsSync(tempOutput)) {
+        return reject(new Error("Output file not found: output.webp"));
+      }
+
+      resolve(tempOutput);
+    });
+  });
+}
+
 
 client.on('message', async message => {
     const isGroup = message.from.endsWith('@g.us');
