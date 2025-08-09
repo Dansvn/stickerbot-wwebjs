@@ -65,53 +65,6 @@ async function processImageStretch(media) {
         fs.writeFileSync(tempInput, Buffer.from(media.data, 'base64'));
 
         await sharp(tempInput)
-            .resize(512, 512, { fit: 'fill' })
-            .webp()
-            .toFile(tempOutput);
-    } finally {
-        if (fs.existsSync(tempInput)) {
-            try {
-                fs.unlinkSync(tempInput);
-            } catch {}
-        }
-    }
-
-    return tempOutput;
-}
-
-async function processImageStretch(media) {
-    const tempInput = path.join(os.tmpdir(), 'input.webp');
-    const tempOutput = path.join(os.tmpdir(), 'output.webp');
-
-    try {
-        fs.writeFileSync(tempInput, Buffer.from(media.data, 'base64'));
-
-        await sharp(tempInput)
-            .resize(512, 512, {
-                fit: 'contain',
-                background: { r: 0, g: 0, b: 0, alpha: 0 }
-            })
-            .webp()
-            .toFile(tempOutput);
-    } finally {
-        if (fs.existsSync(tempInput)) {
-            try {
-                fs.unlinkSync(tempInput);
-            } catch {}
-        }
-    }
-
-    return tempOutput;
-}
-
-async function processImageStretch(media) {
-    const tempInput = path.join(os.tmpdir(), 'input.webp');
-    const tempOutput = path.join(os.tmpdir(), 'output.webp');
-
-    try {
-        fs.writeFileSync(tempInput, Buffer.from(media.data, 'base64'));
-
-        await sharp(tempInput)
             .resize(512, 512, { fit: 'fill' })  
             .webp()
             .toFile(tempOutput);
@@ -176,6 +129,51 @@ async function processVideoStretch(media) {
   });
 }
 
+const queue = [];
+let processing = false;
+
+async function processQueue() {
+    if (processing) return;
+    if (queue.length === 0) return;
+
+    processing = true;
+    const { message, targetMsg, config } = queue.shift();
+
+    try {
+        const media = await targetMsg.downloadMedia();
+
+        let stickerPath;
+
+        const mimetype = targetMsg._data?.mimetype || '';
+        const isGif = mimetype === 'image/gif';
+        const isImage = mimetype.startsWith('image/') && !isGif;
+        const isVideo = mimetype.startsWith('video/');
+
+        if (isImage) {
+            stickerPath = await processImageStretch(media);
+        } else if (isVideo || isGif) {
+            stickerPath = await processVideoStretch(media);
+        }
+
+        const stickerMedia = MessageMedia.fromFilePath(stickerPath);
+        await client.sendMessage(message.from, stickerMedia, {
+            sendMediaAsSticker: true,
+            stickerName: config.name,
+            stickerAuthor: config.author
+        });
+
+        fs.unlinkSync(stickerPath);
+
+        if (config.log) log('Sticker created and sent via queue.');
+
+    } catch (e) {
+        if (config.log) logError('Failed to create sticker: ' + e.message);
+        client.sendMessage(message.from, "Failed to create sticker.");
+    }
+
+    processing = false;
+    processQueue();
+}
 
 client.on('message', async message => {
     const isGroup = message.from.endsWith('@g.us');
@@ -289,30 +287,8 @@ client.on('message', async message => {
                 return client.sendMessage(message.from, "Send an image/video or reply to one using the command.");
             }
 
-            try {
-                const media = await targetMsg.downloadMedia();
-
-                let stickerPath;
-
-                if (isImage) {
-                    stickerPath = await processImageStretch(media);
-                } else if (isVideo || isGif) {
-                    stickerPath = await processVideoStretch(media);
-                }
-
-                const stickerMedia = MessageMedia.fromFilePath(stickerPath);
-                await client.sendMessage(message.from, stickerMedia, {
-                    sendMediaAsSticker: true,
-                    stickerName: config.name,
-                    stickerAuthor: config.author
-                });
-                fs.unlinkSync(stickerPath);
-
-                if (config.log) log('Sticker created and sent via command.');
-            } catch (e) {
-                if (config.log) logError('Failed to create sticker: ' + e.message);
-                client.sendMessage(message.from, "Failed to create sticker.");
-            }
+            queue.push({ message, targetMsg, config });
+            processQueue();
 
             return;
         }
@@ -324,30 +300,8 @@ client.on('message', async message => {
         const isVideo = mimetype.startsWith("video/");
 
         if (isImage || isVideo) {
-            try {
-                const media = await message.downloadMedia();
-
-                let stickerPath;
-                if (isImage) {
-                    stickerPath = await processImageStretch(media);
-                } else if (isVideo) {
-                    stickerPath = await processVideoStretch(media);
-                }
-
-                const stickerMedia = MessageMedia.fromFilePath(stickerPath);
-                await client.sendMessage(message.from, stickerMedia, {
-                    sendMediaAsSticker: true,
-                    stickerName: config.name,
-                    stickerAuthor: config.author
-                });
-
-                fs.unlinkSync(stickerPath);
-
-                if (config.log) log('Sticker automatically created in private chat.');
-            } catch (e) {
-                if (config.log) logError('Failed to create sticker in private chat: ' + e.message);
-                client.sendMessage(message.from, "Failed to create sticker.");
-            }
+            queue.push({ message, targetMsg: message, config });
+            processQueue();
             return;
         }
     }
