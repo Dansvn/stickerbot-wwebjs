@@ -294,7 +294,7 @@ client.on('message', async message => {
         }
     }
 
-    if (!isGroup && message.hasMedia) {
+    if (!isGroup && message.hasMedia && message.type !== "sticker") {
         const mimetype = message._data?.mimetype || "";
         const isImage = mimetype.startsWith("image/");
         const isVideo = mimetype.startsWith("video/");
